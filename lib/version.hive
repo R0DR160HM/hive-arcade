@@ -1,0 +1,12 @@
+// Which release this arcade is. The CI build rewrites the line below to the tag
+// it is about to publish, so a released arcade knows its own name and can tell
+// whether the latest release is a different one. A local build says "dev", and
+// a "dev" build never updates itself.
+func current(): Str {
+    return "dev"
+}
+
+// The public repository the arcade updates itself from.
+func repository(): Str {
+    return "R0DR160HM/hive-arcade"
+}

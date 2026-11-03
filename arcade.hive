@@ -1,0 +1,301 @@
+// Hive Arcade
+// ===========
+// One window, every game. Pick one on the left, press Play (or Enter), and it
+// starts in a window of its own; the arcade stays open behind it.
+//
+// The games are not separate downloads. The arcade's CI build takes the latest
+// release of each game's repository and packs the executables onto the end of
+// the arcade's own (see lib/bundle.go and tools/bundle.py), so one file is the
+// whole arcade. A game is written out to a folder of its own the first time it
+// is played, and again only when the arcade carries a different build of it.
+//
+// Every start asks the arcade's public repository for its latest release, and
+// if it is not this one, downloads it over this executable. The next start is
+// the new arcade, with the new games in it — or press Restart when it says so.
+//
+// RUN IT
+//
+//   hive run arcade.hive      a "dev" build: never updates, and finds games in
+//                             a games/ folder beside it, named as released:
+//                             floreheim-windows-amd64.exe and so on
+
+import ./lib/bundle.go
+import ./lib/catalog
+import ./lib/updater
+import ./lib/version
+
+type Entry {
+    game: catalog.Game
+    file: Str
+    present: Bool
+    build: Str
+}
+
+type State {
+    entries: Entry[dyn]
+    chosen: Int
+    status: Str
+    failed: Bool
+    update: Str
+    canRestart: Bool
+}
+
+type Msg {
+    Choose { index: Int }
+    Key { name: Str }
+    Play
+    Note { text: Str }
+    Installed { tag: Str }
+    Restart
+}
+
+// The palette. The arcade is dark whatever the desktop is, so every colour is
+// written out rather than left to a role that follows the theme.
+func page(): hive.ui.Tone {
+    return ui.Tone.HEX("#101217")
+}
+
+func panel(): hive.ui.Tone {
+    return ui.Tone.HEX("#191c23")
+}
+
+func raised(): hive.ui.Tone {
+    return ui.Tone.HEX("#232731")
+}
+
+func ink(): hive.ui.Tone {
+    return ui.Tone.HEX("#ecedf2")
+}
+
+func faint(): hive.ui.Tone {
+    return ui.Tone.HEX("#8b91a1")
+}
+
+func initial(title: Str): Str {
+    if title bounds 0 {
+        return title[0]
+    }
+    return "?"
+}
+
+func tile(game: catalog.Game, side: Int, letters: hive.ui.TextSize): hive.ui.View {
+    return ui.column([
+        ui.width(side),
+        ui.height(side),
+        ui.radius(12),
+        ui.background(ui.Tone.HEX(game.colour)),
+        ui.align(ui.Align.Center()),
+        ui.justify(ui.Justify.Center())
+    ], [
+        ui.text([ui.size(letters), ui.tone(ui.Tone.HEX("#ffffff"))], initial(game.title))
+    ])
+}
+
+func listing(state: State): hive.ui.View {
+    mut hive.ui.View[dyn] rows = []
+    for i := 0; i < len(state.entries); i++ {
+        if state.entries bounds i {
+            entry := state.entries[i]
+            mut hive.ui.Tone fill = panel()
+            if i == state.chosen {
+                fill = raised()
+            }
+            mut Str sub = entry.game.tagline
+            if !entry.present {
+                sub = "not in this build"
+            }
+            append(rows, ui.button([
+                ui.on(Msg.Choose(i)),
+                ui.background(fill),
+                ui.hover(raised()),
+                ui.radius(10),
+                ui.ring(false),
+                ui.pad(10)
+            ], entry.game.title))
+            append(rows, ui.row([ui.gap(10), ui.pad(4), ui.align(ui.Align.Center())], [
+                tile(entry.game, 28, ui.TextSize.Caption()),
+                ui.text([ui.size(ui.TextSize.Caption()), ui.tone(faint())], sub)
+            ]))
+        }
+    }
+    return ui.column([ui.width(300), ui.gap(6), ui.pad(20), ui.background(panel()), ui.scroll(ui.Axis.Vertical())], [
+        ui.text([ui.size(ui.TextSize.Title()), ui.heading(1), ui.tone(ink())], "Hive Arcade"),
+        ui.text([ui.size(ui.TextSize.Caption()), ui.tone(faint())], "{len(state.entries)} games · {version.current()}"),
+        ui.column([ui.height(12)], []),
+        ui.column([ui.gap(4)], rows)
+    ])
+}
+
+func details(state: State): hive.ui.View {
+    at := state.chosen
+    if state.entries bounds at {
+        return about(state, state.entries[at])
+    }
+    return ui.column([ui.grow(1), ui.pad(32), ui.background(page())], [
+        ui.text([ui.tone(faint())], "No games in this arcade.")
+    ])
+}
+
+func about(state: State, entry: Entry): hive.ui.View {
+    mut Str built = "build {entry.build}"
+    if entry.build == "" {
+        built = "local build"
+    }
+    mut Str label = "Play"
+    if !entry.present {
+        label = "Not available"
+        built = "this arcade was built without {entry.file}"
+    }
+    mut hive.ui.Tone statusTone = faint()
+    if state.failed {
+        statusTone = ui.Tone.HEX("#ff7a6b")
+    }
+    return ui.column([ui.grow(1), ui.pad(40), ui.gap(18), ui.background(page())], [
+        ui.row([ui.gap(24), ui.align(ui.Align.Center())], [
+            tile(entry.game, 128, ui.TextSize.Title()),
+            ui.column([ui.gap(6), ui.grow(1)], [
+                ui.text([ui.size(ui.TextSize.Title()), ui.heading(2), ui.tone(ink())], entry.game.title),
+                ui.text([ui.size(ui.TextSize.Subtitle()), ui.tone(ui.Tone.HEX(entry.game.colour))], entry.game.tagline),
+                ui.text([ui.size(ui.TextSize.Caption()), ui.tone(faint())], built)
+            ])
+        ]),
+        ui.text([ui.tone(ink())], entry.game.blurb),
+        ui.row([ui.gap(16), ui.align(ui.Align.Center())], [
+            ui.button([
+                ui.on(Msg.Play()),
+                ui.disabled(!entry.present),
+                ui.background(ui.Tone.HEX(entry.game.colour)),
+                ui.tone(ui.Tone.HEX("#ffffff")),
+                ui.radius(10),
+                ui.pad(14),
+                ui.width(180)
+            ], label),
+            ui.text([ui.size(ui.TextSize.Caption()), ui.tone(statusTone)], state.status)
+        ]),
+        ui.spacer(),
+        ui.text([ui.size(ui.TextSize.Caption()), ui.tone(faint())], "↑ ↓ to choose · Enter to play")
+    ])
+}
+
+func banner(state: State): hive.ui.View {
+    if state.update == "" {
+        return ui.none()
+    }
+    mut hive.ui.View action = ui.none()
+    if state.canRestart {
+        action = ui.button([ui.on(Msg.Restart()), ui.background(raised()), ui.tone(ink()), ui.radius(8)], "Restart now")
+    }
+    return ui.row([ui.pad(10), ui.gap(12), ui.align(ui.Align.Center()), ui.background(ui.Tone.HEX("#1f2a3a"))], [
+        ui.icon([ui.tone(ink())], ui.Icon.Repeat()),
+        ui.text([ui.size(ui.TextSize.Caption()), ui.tone(ink()), ui.grow(1)], state.update),
+        action
+    ])
+}
+
+func view(state: State): hive.ui.View {
+    return ui.column([
+        ui.grow(1),
+        ui.background(page()),
+        ui.keys(["ArrowUp", "ArrowDown", "Enter"]),
+        ui.onKey(Msg.Key(_))
+    ], [
+        banner(state),
+        ui.row([ui.grow(1), ui.align(ui.Align.Stretch())], [listing(state), details(state)])
+    ])
+}
+
+proc play(state: mut State): void {
+    at := state.chosen
+    if state.entries bounds at {
+        launch(state, state.entries[at])
+    }
+}
+
+proc launch(state: mut State, entry: Entry): void {
+    if !entry.present {
+        return
+    }
+    Result.Ok(path) := bundle.prepare(entry.file, entry.game.id) else {
+        Result.Error(why) {
+            state.status = "could not unpack {entry.game.title}: {why}"
+            state.failed = true
+            return
+        }
+    }
+    if bundle.launch(path) is Result.Error(why) {
+        state.status = "could not start {entry.game.title}: {why}"
+        state.failed = true
+        return
+    }
+    state.status = "{entry.game.title} is starting…"
+    state.failed = false
+}
+
+proc update(state: mut State, message: Msg): Msg {
+    if message is Msg.Choose(index) {
+        state.chosen = index
+        state.status = ""
+        state.failed = false
+    } else if message is Msg.Key(name) {
+        if name == "ArrowUp" && state.chosen > 0 {
+            state.chosen = state.chosen - 1
+            state.status = ""
+        } else if name == "ArrowDown" && state.chosen < len(state.entries) - 1 {
+            state.chosen = state.chosen + 1
+            state.status = ""
+        } else if name == "Enter" {
+            play(state)
+        }
+    } else if message is Msg.Play {
+        play(state)
+    } else if message is Msg.Note(text) {
+        state.update = text
+    } else if message is Msg.Installed(tag) {
+        state.update = "Hive Arcade {tag} is installed. It opens the next time the arcade starts."
+        state.canRestart = true
+    } else if message is Msg.Restart {
+        if bundle.restart() is Result.Error(why) {
+            state.update = "could not restart: {why}"
+        } else {
+            hive.term.exit(0)
+        }
+    }
+    return message
+}
+
+// Runs beside the window, and tells it what it found by posting to it.
+proc watchForUpdates(window: Address<Msg>): void {
+    current := version.current()
+    if current == "dev" {
+        return
+    }
+    check := updater.latest(version.repository(), current)
+    if check is updater.Check.Newer(tag, url) {
+        async window(Msg.Note("Downloading Hive Arcade {tag}…"))
+        taken := updater.take(url)
+        if taken is Result.Ok(_) {
+            async window(Msg.Installed(tag))
+        } else if taken is Result.Error(why) {
+            async window(Msg.Note("Could not update to {tag}: {why}"))
+        }
+    } else if check is updater.Check.Failed(why) {
+        hive.term.status("update check failed: {why}")
+    }
+}
+
+func entries(): Entry[dyn] {
+    mut Entry[dyn] found = []
+    for each game in catalog.games() {
+        file := catalog.fileFor(game, bundle.platform(), bundle.suffix())
+        append(found, Entry(game, file, bundle.has(file), bundle.note(file)))
+    }
+    return found
+}
+
+proc main(): void {
+    bundle.cleanup()
+    fresh := State(entries(), 0, "", false, "", false)
+    if spawn(ui.window("Hive Arcade", view, update), fresh) is Result.Ok(window) {
+        async watchForUpdates(window)
+    }
+}

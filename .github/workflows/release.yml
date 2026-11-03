@@ -1,0 +1,119 @@
+name: release
+
+# Builds the arcade with the newest Hive compiler, packs the latest release of
+# every game onto the end of it, and publishes the result as a release tagged
+# build-<run number> and marked latest. That release is what a running arcade
+# checks for on start and updates itself to.
+#
+# The game repositories are private, so downloading their releases needs the
+# GAMES_TOKEN secret: a fine-grained token with read access to Contents on
+#   R0DR160HM/gta-hive, R0DR160HM/formula-hive and R0DR160HM/panzer.
+#
+# It runs on a push to master, by hand, and when a game's own workflow says a
+# new release is out (repository_dispatch, event type game-released).
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+  repository_dispatch:
+    types: [game-released]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # `hive build` writes a Go module and runs `go build` over it.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Download the latest Hive compiler
+        run: |
+          mkdir -p "$RUNNER_TEMP/hive"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/hive/hive" \
+            https://github.com/R0DR160HM/hive-lang/releases/latest/download/hivec-linux-amd64
+          chmod +x "$RUNNER_TEMP/hive/hive"
+          echo "$RUNNER_TEMP/hive" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/hive/hive" version
+
+      # Each game's workflow publishes <id>-<os>-<arch>[.exe]. Beside each one
+      # goes a <file>.tag naming the release it came from, which the arcade
+      # shows as that game's build.
+      - name: Download the games
+        env:
+          GH_TOKEN: ${{ secrets.GAMES_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::The GAMES_TOKEN secret is not set, and the game repositories are private."
+            exit 1
+          fi
+          mkdir -p games
+          for spec in R0DR160HM/gta-hive:floreheim R0DR160HM/formula-hive:formula-hive R0DR160HM/panzer:panzer; do
+            repo="${spec%%:*}"; id="${spec##*:}"
+            tag=$(gh release view -R "$repo" --json tagName -q .tagName)
+            echo "$repo: $tag"
+            gh release download "$tag" -R "$repo" --pattern "$id-*" --dir "games/$id" --clobber
+            for file in "games/$id"/*; do
+              echo "$tag" > "$file.tag"
+            done
+          done
+          ls -laR games
+
+      - name: Stamp the release into the arcade
+        run: |
+          tag="build-${{ github.run_number }}"
+          sed -i "s|return \"dev\"|return \"$tag\"|" lib/version.hive
+          if ! grep -q "return \"$tag\"" lib/version.hive; then
+            echo "::error file=lib/version.hive::could not write $tag into lib/version.hive"
+            exit 1
+          fi
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+
+      - name: Build and pack
+        run: |
+          mkdir -p dist
+          for target in windows/amd64 linux/amd64; do
+            os="${target%/*}"; arch="${target#*/}"; ext=""
+            if [ "$os" = windows ]; then ext=".exe"; fi
+            hive build arcade.hive --target "$target"
+
+            # Only this platform's games go into this platform's arcade.
+            pack="pack/$os-$arch"
+            mkdir -p "$pack"
+            find games -type f -name "*-$os-$arch$ext" -exec cp {} "$pack/" \;
+            find games -type f -name "*-$os-$arch$ext.tag" -exec cp {} "$pack/" \;
+
+            python3 tools/bundle.py "arcade-$os-$arch$ext" "dist/hive-arcade-$os-$arch$ext" "$pack"
+          done
+          ls -la dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "Built from ${GITHUB_SHA::7} with Hive $(hive version)."
+            echo
+            echo "Games:"
+            for tag in pack/windows-amd64/*.tag; do
+              echo "- $(basename "$tag" .tag): $(cat "$tag")"
+            done
+          } > notes.md
+          gh release create "$TAG" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "Hive Arcade $TAG" \
+            --notes-file notes.md \
+            --latest

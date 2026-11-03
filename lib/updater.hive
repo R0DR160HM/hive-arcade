@@ -1,0 +1,66 @@
+// Whether a newer arcade has been released, and taking it if so.
+//
+// The arcade's own repository is public, so this asks GitHub for its latest
+// release with no token. A release is named by its tag; any tag other than the
+// one this build was stamped with is "newer", which is what a rolling build
+// number wants. The asset taken is the one built for this platform, and it
+// already carries every game, so updating the arcade updates the games too.
+
+import ./bundle.go
+
+type Asset {
+    name: Str
+    url: Str -- JSON as browser_download_url;
+}
+
+type Release {
+    tag: Str -- JSON as tag_name;
+    assets: Asset[dyn]
+}
+
+type Check {
+    Current
+    Newer { tag: Str, url: Str }
+    Failed { why: Str }
+}
+
+// The asset name the arcade's workflow publishes for this platform.
+func assetName(): Str {
+    return "hive-arcade-{bundle.platform()}{bundle.suffix()}"
+}
+
+func latest(repository: Str, current: Str): Check {
+    headers := [["User-Agent", "hive-arcade"], ["Accept", "application/vnd.github+json"]]
+    request := hive.net.HttpRequest("GET", "https://api.github.com/repos/{repository}/releases/latest", headers, "")
+    Result.Ok(answer) := hive.net.httpRequest(request) else {
+        Result.Error(why) { return Check.Failed(why.message) }
+    }
+    if answer.status == 404 {
+        return Check.Current()
+    }
+    if answer.status != 200 {
+        return Check.Failed("GitHub answered {answer.status}")
+    }
+    Result.Ok(release) := Release.decode(answer.body, hive.json.codec()) else {
+        Result.Error(why) { return Check.Failed("could not read the release at {why.path}") }
+    }
+    if release.tag == current {
+        return Check.Current()
+    }
+    wanted := assetName()
+    for each asset in release.assets {
+        if asset.name == wanted {
+            return Check.Newer(release.tag, asset.url)
+        }
+    }
+    return Check.Failed("{release.tag} has no {wanted}")
+}
+
+// Downloads the release and puts it where this executable is. The running copy
+// keeps running; the next start is the new one.
+func take(url: Str): Result<Bool, Str> {
+    Result.Ok(downloaded) := bundle.download(url) else {
+        Result.Error(why) { return Result.Error(why) }
+    }
+    return bundle.install(downloaded)
+}

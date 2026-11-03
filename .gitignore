@@ -1,0 +1,12 @@
+# What the compiler makes.
+*.hive-build/
+/arcade
+/arcade-*
+*.exe
+
+# Games dropped in by hand for a local "dev" run, and what CI downloads.
+/games/
+/pack/
+/dist/
+
+.hivedocs/

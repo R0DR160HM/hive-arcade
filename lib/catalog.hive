@@ -1,0 +1,42 @@
+// The games the arcade knows about. Each one's executable is published by its
+// own repository's workflow as `<id>-<os>-<arch>[.exe]`, and the arcade's
+// workflow packs those onto the end of the arcade under the same names.
+
+type Game {
+    id: Str
+    title: Str
+    tagline: Str
+    blurb: Str
+    colour: Str
+}
+
+func games(): Game[3] {
+    return [
+        Game(
+            "floreheim",
+            "Floreheim",
+            "Open-world crime in a valley town",
+            "A city of half-timbered houses, iron bridges and a beer festival, cut by a river and walled in by forested hills. Steal a car, take a job, and see how far the police will follow you.",
+            "#d9822b"
+        ),
+        Game(
+            "formula-hive",
+            "Formula Hive",
+            "Ten cars, five teams, one seed",
+            "A kart racer with a Formula One face on it. Pick a team, take a seat and race the other nine, alone, in a campaign, or online with everybody on a server.",
+            "#d63a3a"
+        ),
+        Game(
+            "panzer",
+            "Hive Panzer",
+            "Artillery on an island that will not last",
+            "Build a tank a block at a time, then take turns shelling the other side. The wind has a say, the ground breaks, and anything blown into the sea is not coming back.",
+            "#5b8c3a"
+        )
+    ]
+}
+
+// The file a game's executable goes by, for this platform.
+func fileFor(game: Game, platform: Str, suffix: Str): Str {
+    return "{game.id}-{platform}{suffix}"
+}
