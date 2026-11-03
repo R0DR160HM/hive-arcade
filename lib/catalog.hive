@@ -1,12 +1,15 @@
 // The games the arcade knows about. Each one's executable is published by its
 // own repository's workflow as `<id>-<os>-<arch>[.exe]`, and the arcade's
-// workflow packs those onto the end of the arcade under the same names.
+// workflow packs those onto the end of the arcade under the same names. Each
+// one's cover is `assets/games/<id>.png`, embedded with the rest of assets/.
 
 type Game {
     id: Str
     title: Str
     tagline: Str
     blurb: Str
+    tags: Str[dyn]
+    controls: Str
     colour: Str
 }
 
@@ -15,23 +18,29 @@ func games(): Game[3] {
         Game(
             "floreheim",
             "Floreheim",
-            "Open-world crime in a valley town",
-            "A city of half-timbered houses, iron bridges and a beer festival, cut by a river and walled in by forested hills. Steal a car, take a job, and see how far the police will follow you.",
+            "Open-world crime in a city of bridges and beer halls",
+            "Fly into Floreheim, a fictional city based on Blumenau. Then it's yours: half-timbered streets, iron bridges, a river and forested hills. Steal cars, take a plane up from the airfield, run jobs across town, or play with friends over the network. Just don't expect the police to give up easily.",
+            ["Open world", "Action", "Driving", "Flying", "Multiplayer"],
+            "WASD to move · Mouse to aim · E for cars · M for map",
             "#d9822b"
         ),
         Game(
             "formula-hive",
             "Formula Hive",
-            "Ten cars, five teams, one seed",
-            "A kart racer with a Formula One face on it. Pick a team, take a seat and race the other nine, alone, in a campaign, or online with everybody on a server.",
-            "#d63a3a"
+            "Kart racing with a Formula One face",
+            "Ten cars, five teams, five laps. Drift through the corners to charge a boost, then let go to use it. You must pit once and run two tyre compounds, and the walls really stop you. Pick a quick race, a ten-round campaign or an online grid.",
+            ["Racing", "Campaign", "Online", "Gamepad"],
+            "Arrows to drive · Space to drift · E for pickups · Tab for standings",
+            "#e0453a"
         ),
         Game(
             "panzer",
             "Hive Panzer",
-            "Artillery on an island that will not last",
-            "Build a tank a block at a time, then take turns shelling the other side. The wind has a say, the ground breaks, and anything blown into the sea is not coming back.",
-            "#5b8c3a"
+            "Turn-based artillery on an island that won't last",
+            "Build a tank block by block in the garage, then trade shells with the enemy. Read the wind, set the angle, hold for power. Every blast digs into the ground, and anything knocked into the sea is gone for good.",
+            ["Strategy", "Turn-based", "Destructible", "Tank builder"],
+            "WASD to drive · Mouse to aim · Hold Space to fire · 1–5 for weapons",
+            "#6a9a3c"
         )
     ]
 }
@@ -39,4 +48,13 @@ func games(): Game[3] {
 // The file a game's executable goes by, for this platform.
 func fileFor(game: Game, platform: Str, suffix: Str): Str {
     return "{game.id}-{platform}{suffix}"
+}
+
+// The image a window draws for a file under assets/.
+func asset(path: Str): Str {
+    return "/_hive/asset/{path}"
+}
+
+func cover(game: Game): Str {
+    return asset("games/{game.id}.png")
 }
