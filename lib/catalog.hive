@@ -35,7 +35,7 @@ func games(): Game[3] {
         ),
         Game(
             "panzer",
-            "Hive Panzer",
+            "Panzer Bonanza",
             "Turn-based artillery on an island that won't last",
             "Build a tank block by block in the garage, then trade shells with the enemy. Read the wind, set the angle, hold for power. Every blast digs into the ground, and anything knocked into the sea is gone for good.",
             ["Strategy", "Turn-based", "Destructible", "Tank builder"],
